@@ -32,7 +32,10 @@ function App() {
   const inputRefs = useRef<(HTMLInputElement | null)[][]>([]);
   const [words, setWords] = useState<string[]>([]);
   const [rootNode, setRootNode] = useState<TrieNode>(new TrieNode());
-  const [foundWords, setFoundWords] = useState<string[]>([]);
+  const [foundWords, setFoundWords] = useState<
+    { word: string; path: [number, number][] }[]
+  >([]);
+  const [hoveredWord, setHoveredWord] = useState<string | null>(null);
   const dirs = [
     [0, 1],
     [1, 0],
@@ -49,9 +52,10 @@ function App() {
     col: number,
     trie: TrieNode,
     visited: boolean[][],
-    currentWord: string = ''
-  ): string[] => {
-    let ret: string[] = [];
+    currentWord: string = '',
+    currentPath: [number, number][] = []
+  ): { word: string; path: [number, number][] }[] => {
+    let ret: { word: string; path: [number, number][] }[] = [];
 
     const cellValue = matrix[row][col];
     if (!cellValue || !trie.children.has(cellValue)) {
@@ -60,9 +64,13 @@ function App() {
 
     const nextTrie = trie.children.get(cellValue)!;
     const newWord = currentWord + cellValue;
+    const newPath: [number, number][] = [
+      ...currentPath,
+      [row, col] as [number, number],
+    ];
 
     if (nextTrie.isEndOfWord) {
-      ret.push(newWord);
+      ret.push({ word: newWord, path: newPath });
     }
 
     visited[row][col] = true;
@@ -73,7 +81,7 @@ function App() {
       if (newRow < 0 || newRow >= n || newCol < 0 || newCol >= n) continue;
       if (visited[newRow][newCol]) continue;
 
-      const results = dfs(newRow, newCol, nextTrie, visited, newWord);
+      const results = dfs(newRow, newCol, nextTrie, visited, newWord, newPath);
       ret.push(...results);
     }
 
@@ -82,13 +90,13 @@ function App() {
   };
 
   const runDfs = (trie: TrieNode) => {
-    let ret: string[] = [];
+    let ret: { word: string; path: [number, number][] }[] = [];
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         let visited = Array(n)
           .fill(false)
           .map(() => Array(n).fill(false));
-        ret.push(...dfs(i, j, trie, visited));
+        ret.push(...dfs(i, j, trie, visited, '', []));
       }
     }
     return ret;
@@ -116,8 +124,17 @@ function App() {
       }
     }
     const results = runDfs(rootNode);
-    const uniqueResults = Array.from(new Set(results));
-    uniqueResults.sort((a, b) => b.length - a.length);
+    const wordMap = new Map<
+      string,
+      { word: string; path: [number, number][] }
+    >();
+    for (const result of results) {
+      if (!wordMap.has(result.word)) {
+        wordMap.set(result.word, result);
+      }
+    }
+    const uniqueResults = Array.from(wordMap.values());
+    uniqueResults.sort((a, b) => b.word.length - a.word.length);
     setFoundWords(uniqueResults);
   }, [matrix]);
 
@@ -220,40 +237,82 @@ function App() {
         </div>
 
         <div
-          className='grid gap-2 mx-auto'
+          className='grid gap-2 mx-auto relative'
           style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}
         >
           {matrix.map((row, rowIdx) =>
-            row.map((cell, colIdx) => (
-              <input
-                key={`${rowIdx}-${colIdx}`}
-                ref={(el) => {
-                  if (!inputRefs.current[rowIdx]) {
-                    inputRefs.current[rowIdx] = [];
-                  }
-                  inputRefs.current[rowIdx][colIdx] = el;
-                }}
-                type='text'
-                value={cell}
-                onFocus={(e) => e.target.select()}
-                onChange={(e) =>
-                  handleCellChange(rowIdx, colIdx, e.target.value)
-                }
-                onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
-                maxLength={2}
-                className='w-16 h-16 text-center text-2xl font-bold border-2 border-gray-300 rounded-md focus:border-blue-500 focus:outline-none uppercase'
-              />
-            ))
+            row.map((cell, colIdx) => {
+              const hoveredWordData = foundWords.find(
+                (w) => w.word === hoveredWord
+              );
+              const pathIndex = hoveredWordData?.path.findIndex(
+                ([r, c]) => r === rowIdx && c === colIdx
+              );
+              const showOverlay = pathIndex !== undefined && pathIndex !== -1;
+
+              return (
+                <div key={`${rowIdx}-${colIdx}`} className='relative'>
+                  <input
+                    ref={(el) => {
+                      if (!inputRefs.current[rowIdx]) {
+                        inputRefs.current[rowIdx] = [];
+                      }
+                      inputRefs.current[rowIdx][colIdx] = el;
+                    }}
+                    type='text'
+                    value={cell}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) =>
+                      handleCellChange(rowIdx, colIdx, e.target.value)
+                    }
+                    onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
+                    maxLength={2}
+                    className='w-16 h-16 text-center text-2xl font-bold border-2 border-gray-300 rounded-md focus:border-green-500 focus:outline-none uppercase'
+                  />
+                  {showOverlay && (
+                    <>
+                      <span className='text-white font-bold text-2xl absolute inset-0 flex items-center justify-center z-20'>
+                        {pathIndex! + 1}
+                      </span>
+                      <div className='absolute inset-0 flex items-center justify-center bg-green-500 opacity-80 rounded-md pointer-events-none z-10'></div>
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
       <div className='pt-8'>
-        <h2 className='text-2xl font-bold'>Words founds</h2>
-        <ul>
-          {foundWords.map((word) => (
-            <li key={word}>{word}</li>
-          ))}
-        </ul>
+        <h2 className='text-2xl font-bold mb-4'>Words founds</h2>
+        <div className='flex gap-8 flex-wrap justify-center'>
+          {Array.from(new Set(foundWords.map((w) => w.word.length)))
+            .sort((a, b) => b - a)
+            .map((length) => {
+              const wordsOfLength = foundWords.filter(
+                (w) => w.word.length === length
+              );
+              return (
+                <div key={length} className='flex flex-col'>
+                  <h3 className='text-lg font-semibold mb-2'>
+                    {length} letters
+                  </h3>
+                  <ul className='space-y-1'>
+                    {wordsOfLength.map((wordData) => (
+                      <li
+                        key={wordData.word}
+                        onMouseEnter={() => setHoveredWord(wordData.word)}
+                        onMouseLeave={() => setHoveredWord(null)}
+                        className='cursor-pointer hover:text-blue-500'
+                      >
+                        {wordData.word}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+        </div>
       </div>
     </div>
   );
